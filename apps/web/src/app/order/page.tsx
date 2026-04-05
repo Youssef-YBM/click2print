@@ -40,28 +40,47 @@ export default function OrderPage() {
     if (f) handleFile(f);
   }, []);
 
-  const handleSubmit = async () => {
-    if (!file) return alert('Veuillez uploader un fichier STL');
-    const token = localStorage.getItem('token');
-    if (!token) return router.push('/login');
-    setLoading(true);
-    try {
-      const res = await fetch('http://localhost:3001/orders', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ fileName: file.name, material, color, quantity, notes }),
-      });
-      if (!res.ok) throw new Error('Erreur');
-      router.push('/dashboard');
-    } catch {
-      alert('Erreur lors de la commande');
-    } finally {
-      setLoading(false);
-    }
-  };
+const handleSubmit = async () => {
+  if (!file) return alert('Veuillez uploader un fichier STL');
+  const token = localStorage.getItem('token');
+  if (!token) return router.push('/login');
+  setLoading(true);
+  try {
+    // 1 — Upload le fichier vers MinIO
+    const formData = new FormData();
+    formData.append('file', file);
+    const uploadRes = await fetch('http://localhost:3001/files/upload', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!uploadRes.ok) throw new Error('Erreur upload fichier');
+    const { fileName, url } = await uploadRes.json();
+
+    // 2 — Créer la commande avec le fileUrl
+    const orderRes = await fetch('http://localhost:3001/orders', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        fileName: file.name,
+        fileUrl: fileName,
+        material,
+        color,
+        quantity,
+        notes,
+      }),
+    });
+    if (!orderRes.ok) throw new Error('Erreur commande');
+    router.push('/dashboard');
+  } catch (err) {
+    alert('Erreur : ' + err);
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div style={{ minHeight: '100vh', background: '#f9fafb', fontFamily: 'system-ui, sans-serif' }}>
