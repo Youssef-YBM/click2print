@@ -12,6 +12,9 @@ const statusMap: Record<string, { label: string; color: string }> = {
   cancelled: { label: 'Annulé',        color: 'bg-red-50 text-red-700' },
 };
 
+// ✅ Ajoutez cette ligne - URL dynamique selon l'environnement
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
@@ -28,13 +31,20 @@ export default function DashboardPage() {
 
   const fetchOrders = async (token: string) => {
     try {
-      const res = await fetch('http://localhost:3001/orders', {
+      // ✅ Correction ici - utilisez API_URL au lieu de localhost en dur
+      const res = await fetch(`${API_URL}/orders`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      
       const data = await res.json();
       setOrders(data);
     } catch (err) {
-      console.error(err);
+      console.error('Erreur lors du chargement des commandes:', err);
+      // Optionnel : afficher un message d'erreur à l'utilisateur
     } finally {
       setLoading(false);
     }
@@ -43,7 +53,7 @@ export default function DashboardPage() {
   const stats = [
     { label: 'Commandes totales', value: orders.length },
     { label: 'En cours', value: orders.filter(o => o.status === 'printing').length },
-    { label: 'Dépenses totales', value: `${orders.reduce((a, o) => a + o.price, 0)} MAD` },
+    { label: 'Dépenses totales', value: `${orders.reduce((a, o) => a + (o.price || 0), 0)} MAD` },
     { label: 'En attente', value: orders.filter(o => o.status === 'pending').length },
   ];
 
@@ -56,7 +66,7 @@ export default function DashboardPage() {
         {/* Bienvenue */}
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ fontSize: 22, fontWeight: 600, color: '#111827', margin: '0 0 4px' }}>
-            Bonjour, {user?.name} 👋
+            Bonjour, {user?.name || user?.username || 'Client'} 👋
           </h1>
           <p style={{ fontSize: 14, color: '#9ca3af', margin: 0 }}>
             Voici un aperçu de vos commandes
@@ -152,14 +162,14 @@ export default function DashboardPage() {
                 {orders.map(o => (
                   <tr key={o.id} style={{ borderTop: '1px solid #f9fafb' }}>
                     <td style={{ padding: '12px 16px', color: '#10b981', fontWeight: 500 }}>
-                      {o.id.slice(0, 8).toUpperCase()}
+                      {o.id?.slice(0, 8).toUpperCase() || 'N/A'}
                     </td>
-                    <td style={{ padding: '12px 16px', color: '#374151' }}>{o.fileName}</td>
-                    <td style={{ padding: '12px 16px', color: '#6b7280' }}>{o.material}</td>
-                    <td style={{ padding: '12px 16px', color: '#6b7280' }}>{o.color}</td>
-                    <td style={{ padding: '12px 16px', color: '#374151' }}>{o.quantity}</td>
+                    <td style={{ padding: '12px 16px', color: '#374151' }}>{o.fileName || '-'}</td>
+                    <td style={{ padding: '12px 16px', color: '#6b7280' }}>{o.material || '-'}</td>
+                    <td style={{ padding: '12px 16px', color: '#6b7280' }}>{o.color || '-'}</td>
+                    <td style={{ padding: '12px 16px', color: '#374151' }}>{o.quantity || 1}</td>
                     <td style={{ padding: '12px 16px', fontWeight: 500, color: '#374151' }}>
-                      {o.price} MAD
+                      {o.price || 0} MAD
                     </td>
                     <td style={{ padding: '12px 16px' }}>
                       <span style={{
@@ -177,11 +187,11 @@ export default function DashboardPage() {
                           o.status === 'shipped'  ? '#4c1d95' :
                           o.status === 'cancelled'? '#991b1b' : '#9d174d',
                       }}>
-                        {statusMap[o.status]?.label}
+                        {statusMap[o.status]?.label || o.status}
                       </span>
                     </td>
                     <td style={{ padding: '12px 16px', color: '#9ca3af' }}>
-                      {new Date(o.createdAt).toLocaleDateString('fr-FR')}
+                      {o.createdAt ? new Date(o.createdAt).toLocaleDateString('fr-FR') : '-'}
                     </td>
                   </tr>
                 ))}

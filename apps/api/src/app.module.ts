@@ -18,17 +18,38 @@ import { OrderHistory } from './orders/order-history.entity';
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres',
-        host: 'localhost',
-        port: 5432,
-        username: 'admin',
-        password: 'secret',
-        database: 'click2print',
-        entities: [User, Order, Machine, Notification, OrderHistory],
-        autoLoadEntities: true,
-        synchronize: true,
-      }),
+      useFactory: (config: ConfigService) => {
+        const isProduction = config.get('NODE_ENV') === 'production';
+        
+        //  Configuration pour la production (Neon.tech)
+        if (isProduction) {
+          return {
+            type: 'postgres',
+            url: config.get('DATABASE_URL'),
+            entities: [User, Order, Machine, Notification, OrderHistory],
+            autoLoadEntities: true,
+            synchronize: false, //  Toujours false en production
+            ssl: { rejectUnauthorized: false },
+            extra: {
+              max: 20,
+              connectionTimeoutMillis: 5000,
+            },
+          };
+        }
+        
+        // 📌 Configuration pour le développement (Docker local)
+        return {
+          type: 'postgres',
+          host: config.get('DB_HOST', 'localhost'),
+          port: config.get('DB_PORT', 5432),
+          username: config.get('DB_USER', 'admin'),
+          password: config.get('DB_PASSWORD', 'secret'),
+          database: config.get('DB_NAME', 'click2print'),
+          entities: [User, Order, Machine, Notification, OrderHistory],
+          autoLoadEntities: true,
+          synchronize: true, //  En développement seulement
+        };
+      },
       inject: [ConfigService],
     }),
     AuthModule,

@@ -2,22 +2,27 @@
   "name": "click2print",
   "private": true,
   "scripts": {
+    "dev": "npm run docker:up && npm run dev:all",
+    "dev:all": "node scripts/dev.js",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:restart": "docker compose down && docker compose up -d",
+    "docker:logs": "docker compose logs -f",
+    "seed": "ts-node -r tsconfig-paths/register src/seed/seed.ts",
+    "seed:reset": "npm run docker:down && npm run docker:up && npm run seed",
     "build": "turbo run build",
-    "dev": "turbo run dev",
-    "lint": "turbo run lint",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "check-types": "turbo run check-types",
-    "seed": "ts-node -r tsconfig-paths/register src/seed/seed.ts"
+    "lint": "turbo run lint"
   },
   "devDependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
     "prettier": "^3.7.4",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "turbo": "^2.8.17",
-    "typescript": "5.9.2"
+    "typescript": "5.9.2",
+    "wait-on": "^8.0.4"
   },
-  "engines": {
-    "node": ">=18"
-  },
-  "packageManager": "npm@11.11.0",
   "workspaces": [
     "apps/*",
     "packages/*"
