@@ -4,15 +4,15 @@ import { useRouter } from 'next/navigation';
 import Navbar from '@/components/layout/Navbar';
 
 const statusMap: Record<string, { label: string; color: string }> = {
-  printing:  { label: 'En impression', color: 'bg-blue-50 text-blue-700' },
-  review:    { label: 'Révision',      color: 'bg-pink-50 text-pink-700' },
-  done:      { label: 'Terminé',       color: 'bg-green-50 text-green-700' },
-  shipped:   { label: 'Expédié',       color: 'bg-purple-50 text-purple-700' },
-  pending:   { label: 'En attente',    color: 'bg-amber-50 text-amber-700' },
-  cancelled: { label: 'Annulé',        color: 'bg-red-50 text-red-700' },
+  printing: { label: 'En impression', color: 'bg-blue-50 text-blue-700' },
+  review: { label: 'Révision', color: 'bg-pink-50 text-pink-700' },
+  done: { label: 'Terminé', color: 'bg-green-50 text-green-700' },
+  shipped: { label: 'Expédié', color: 'bg-purple-50 text-purple-700' },
+  pending: { label: 'En attente', color: 'bg-amber-50 text-amber-700' },
+  cancelled: { label: 'Annulé', color: 'bg-red-50 text-red-700' },
 };
 
-// ✅ Ajoutez cette ligne - URL dynamique selon l'environnement
+// Ajoutez cette ligne - URL dynamique selon l'environnement
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export default function DashboardPage() {
@@ -31,15 +31,14 @@ export default function DashboardPage() {
 
   const fetchOrders = async (token: string) => {
     try {
-      // ✅ Correction ici - utilisez API_URL au lieu de localhost en dur
-      const res = await fetch(`${API_URL}/orders`, {
+      const res = await fetch('/api/orders', {  // ← /api/ seulement
         headers: { Authorization: `Bearer ${token}` },
       });
-      
+
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
-      
+
       const data = await res.json();
       setOrders(data);
     } catch (err) {
@@ -175,17 +174,17 @@ export default function DashboardPage() {
                       <span style={{
                         fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20,
                         background:
-                          o.status === 'pending'  ? '#fef3c7' :
-                          o.status === 'printing' ? '#dbeafe' :
-                          o.status === 'done'     ? '#d1fae5' :
-                          o.status === 'shipped'  ? '#ede9fe' :
-                          o.status === 'cancelled'? '#fee2e2' : '#fce7f3',
+                          o.status === 'pending' ? '#fef3c7' :
+                            o.status === 'printing' ? '#dbeafe' :
+                              o.status === 'done' ? '#d1fae5' :
+                                o.status === 'shipped' ? '#ede9fe' :
+                                  o.status === 'cancelled' ? '#fee2e2' : '#fce7f3',
                         color:
-                          o.status === 'pending'  ? '#92400e' :
-                          o.status === 'printing' ? '#1e40af' :
-                          o.status === 'done'     ? '#065f46' :
-                          o.status === 'shipped'  ? '#4c1d95' :
-                          o.status === 'cancelled'? '#991b1b' : '#9d174d',
+                          o.status === 'pending' ? '#92400e' :
+                            o.status === 'printing' ? '#1e40af' :
+                              o.status === 'done' ? '#065f46' :
+                                o.status === 'shipped' ? '#4c1d95' :
+                                  o.status === 'cancelled' ? '#991b1b' : '#9d174d',
                       }}>
                         {statusMap[o.status]?.label || o.status}
                       </span>
