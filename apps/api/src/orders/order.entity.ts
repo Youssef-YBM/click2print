@@ -58,8 +58,9 @@ export class Order {
   @ManyToOne(() => Machine, { eager: true, nullable: true })
   machine: Machine;
 
-@OneToMany(() => OrderHistory, history => history.id)
-history: OrderHistory[];
+  // CORRECTION ICI - La relation doit pointer vers la propriété 'order' dans OrderHistory
+  @OneToMany(() => OrderHistory, history => history.order, { eager: false })
+  history: OrderHistory[];
 
   @CreateDateColumn()
   createdAt: Date;

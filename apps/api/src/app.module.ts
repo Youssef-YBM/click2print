@@ -12,6 +12,7 @@ import { Order } from './orders/order.entity';
 import { Machine } from './orders/machine.entity';
 import { Notification } from './notifications/notification.entity';
 import { OrderHistory } from './orders/order-history.entity';
+import { File } from './files/file.entity';  
 
 @Module({
   imports: [
@@ -21,14 +22,14 @@ import { OrderHistory } from './orders/order-history.entity';
       useFactory: (config: ConfigService) => {
         const isProduction = config.get('NODE_ENV') === 'production';
         
-        //  Configuration pour la production (Neon.tech)
+        // Configuration pour la production (Neon.tech)
         if (isProduction) {
           return {
             type: 'postgres',
             url: config.get('DATABASE_URL'),
-            entities: [User, Order, Machine, Notification, OrderHistory],
+            entities: [User, Order, Machine, Notification, OrderHistory, File], 
             autoLoadEntities: true,
-            synchronize: false, //  Toujours false en production
+            synchronize: false, // Toujours false en production
             ssl: { rejectUnauthorized: false },
             extra: {
               max: 20,
@@ -37,7 +38,7 @@ import { OrderHistory } from './orders/order-history.entity';
           };
         }
         
-        // 📌 Configuration pour le développement (Docker local)
+        //  Configuration pour le développement (Docker local)
         return {
           type: 'postgres',
           host: config.get('DB_HOST', 'localhost'),
@@ -45,16 +46,16 @@ import { OrderHistory } from './orders/order-history.entity';
           username: config.get('DB_USER', 'admin'),
           password: config.get('DB_PASSWORD', 'secret'),
           database: config.get('DB_NAME', 'click2print'),
-          entities: [User, Order, Machine, Notification, OrderHistory],
+          entities: [User, Order, Machine, Notification, OrderHistory, File], // 👈 AJOUTEZ File
           autoLoadEntities: true,
-          synchronize: true, //  En développement seulement
+          synchronize: true, // En développement seulement
         };
       },
       inject: [ConfigService],
     }),
     AuthModule,
     OrdersModule,
-    FilesModule,
+    FilesModule,  //  Assurez-vous que FilesModule est bien importé
     PricingModule,
     NotificationsModule,
     MachinesModule,

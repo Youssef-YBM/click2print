@@ -1,5 +1,5 @@
 'use client';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Navbar from '@/components/layout/Navbar';
@@ -9,7 +9,7 @@ const STLViewer = dynamic(() => import('@/components/viewer/STLViewer'), { ssr: 
 const materials = ['PLA', 'PETG', 'ABS', 'Résine'];
 const colors = ['Blanc', 'Noir', 'Gris', 'Bleu', 'Rouge', 'Vert'];
 
-const prices: Record<string, number> = {
+const basePrices: Record<string, number> = {
   'PLA': 50, 'PETG': 70, 'ABS': 65, 'Résine': 120,
 };
 
@@ -22,8 +22,33 @@ export default function OrderPage() {
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  
+  // États pour le code promo
+  const [promoCode, setPromoCode] = useState('');
+  const [promoApplied, setPromoApplied] = useState<any>(null);
+  const [loadingPromo, setLoadingPromo] = useState(false);
+  const [totalPrice, setTotalPrice] = useState(basePrices['PLA'] * 1);
 
-  const totalPrice = prices[material] * quantity;
+  // Calcul du sous-total
+  const subtotalPrice = basePrices[material] * quantity;
+
+  // Mettre à jour le prix total quand sous-total ou promo change
+  useEffect(() => {
+    if (promoApplied) {
+      let discountAmount = 0;
+      if (promoApplied.discountType === 'percentage') {
+        discountAmount = (subtotalPrice * promoApplied.discountValue) / 100;
+        if (promoApplied.maxDiscount && discountAmount > promoApplied.maxDiscount) {
+          discountAmount = promoApplied.maxDiscount;
+        }
+      } else {
+        discountAmount = promoApplied.discountValue;
+      }
+      setTotalPrice(Math.max(0, subtotalPrice - discountAmount));
+    } else {
+      setTotalPrice(subtotalPrice);
+    }
+  }, [subtotalPrice, promoApplied]);
 
   const handleFile = (f: File) => {
     if (f.name.toLowerCase().endsWith('.stl')) {
@@ -40,47 +65,91 @@ export default function OrderPage() {
     if (f) handleFile(f);
   }, []);
 
-const handleSubmit = async () => {
-  if (!file) return alert('Veuillez uploader un fichier STL');
-  const token = localStorage.getItem('token');
-  if (!token) return router.push('/login');
-  setLoading(true);
-  try {
-    // 1 — Upload le fichier vers MinIO
-    const formData = new FormData();
-    formData.append('file', file);
-    const uploadRes = await fetch('http://localhost:3001/files/upload', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: formData,
-    });
-    if (!uploadRes.ok) throw new Error('Erreur upload fichier');
-    const { fileName, url } = await uploadRes.json();
+  // Appliquer le code promo
+  const applyPromoCode = async () => {
+    if (!promoCode.trim()) {
+      alert('Veuillez entrer un code promo');
+      return;
+    }
+    
+    setLoadingPromo(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('http://localhost:3001/pricing/validate-promo', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json', 
+          Authorization: `Bearer ${token}` 
+        },
+        body: JSON.stringify({ 
+          promoCode: promoCode, 
+          orderAmount: subtotalPrice 
+        }),
+      });
+      const data = await res.json();
+      if (data.valid) {
+        setPromoApplied(data.promotion);
+        alert(`Code promo appliqué ! ${data.promotion.discountType === 'percentage' ? `-${data.promotion.discountValue}%` : `-${data.promotion.discountValue} MAD`}`);
+      } else {
+        alert(data.message || 'Code promo invalide');
+        setPromoApplied(null);
+      }
+    } catch (error) {
+      console.error('Erreur promo:', error);
+      alert('Erreur lors de l\'application du code promo');
+    } finally {
+      setLoadingPromo(false);
+    }
+  };
 
-    // 2 — Créer la commande avec le fileUrl
-    const orderRes = await fetch('http://localhost:3001/orders', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        fileName: file.name,
-        fileUrl: fileName,
-        material,
-        color,
-        quantity,
-        notes,
-      }),
-    });
-    if (!orderRes.ok) throw new Error('Erreur commande');
-    router.push('/dashboard');
-  } catch (err) {
-    alert('Erreur : ' + err);
-  } finally {
-    setLoading(false);
-  }
-};
+  // Supprimer le code promo
+  const removePromoCode = () => {
+    setPromoCode('');
+    setPromoApplied(null);
+  };
+
+  const handleSubmit = async () => {
+    if (!file) return alert('Veuillez uploader un fichier STL');
+    const token = localStorage.getItem('token');
+    if (!token) return router.push('/login');
+    setLoading(true);
+    try {
+      // 1 — Upload le fichier vers MinIO
+      const formData = new FormData();
+      formData.append('file', file);
+      const uploadRes = await fetch('http://localhost:3001/files/upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (!uploadRes.ok) throw new Error('Erreur upload fichier');
+      const { fileName, url } = await uploadRes.json();
+
+      // 2 — Créer la commande avec le fileUrl et le code promo
+      const orderRes = await fetch('http://localhost:3001/orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileUrl: fileName,
+          material,
+          color,
+          quantity,
+          notes,
+          promoCode: promoApplied ? promoCode : undefined,
+        }),
+      });
+      if (!orderRes.ok) throw new Error('Erreur commande');
+      router.push('/dashboard');
+    } catch (err) {
+      alert('Erreur : ' + err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: '#f9fafb', fontFamily: 'system-ui, sans-serif' }}>
@@ -230,6 +299,78 @@ const handleSubmit = async () => {
               </div>
             </div>
 
+            {/* Code promo */}
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 8 }}>
+                Code promo
+              </label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  value={promoCode}
+                  onChange={(e) => setPromoCode(e.target.value)}
+                  placeholder="Entrez votre code promo"
+                  disabled={!!promoApplied}
+                  style={{ 
+                    flex: 1,
+                    border: '1px solid #e5e7eb', 
+                    borderRadius: 10, 
+                    padding: '10px 12px', 
+                    fontSize: 13,
+                    background: promoApplied ? '#f3f4f6' : 'white',
+                    outline: 'none'
+                  }}
+                />
+                {!promoApplied ? (
+                  <button
+                    onClick={applyPromoCode}
+                    disabled={loadingPromo || !promoCode.trim()}
+                    style={{ 
+                      background: '#10b981',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 10,
+                      padding: '10px 20px',
+                      fontSize: 13,
+                      cursor: (!promoCode.trim() || loadingPromo) ? 'not-allowed' : 'pointer',
+                      opacity: (!promoCode.trim() || loadingPromo) ? 0.5 : 1
+                    }}
+                  >
+                    {loadingPromo ? '...' : 'Appliquer'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={removePromoCode}
+                    style={{ 
+                      background: '#fee2e2',
+                      color: '#991b1b',
+                      border: 'none',
+                      borderRadius: 10,
+                      padding: '10px 20px',
+                      fontSize: 13,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Supprimer
+                  </button>
+                )}
+              </div>
+              {promoApplied && (
+                <div style={{ 
+                  marginTop: 8, 
+                  fontSize: 12, 
+                  color: '#059669',
+                  background: '#d1fae5',
+                  padding: '8px 12px',
+                  borderRadius: 8
+                }}>
+                  ✅ Code promo appliqué : {promoApplied.discountType === 'percentage' 
+                    ? `-${promoApplied.discountValue}%` 
+                    : `-${promoApplied.discountValue} MAD`}
+                </div>
+              )}
+            </div>
+
             {/* Notes */}
             <div>
               <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 8 }}>
@@ -251,12 +392,30 @@ const handleSubmit = async () => {
             {/* Prix + Commander */}
             <div style={{ background: '#f9fafb', borderRadius: 16, padding: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 13, color: '#6b7280' }}>Prix estimé</span>
+                <span style={{ fontSize: 13, color: '#6b7280' }}>Sous-total</span>
+                <span style={{ fontSize: 18, fontWeight: 500, color: '#111827' }}>{subtotalPrice} MAD</span>
+              </div>
+              
+              {promoApplied && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, color: '#059669' }}>Réduction</span>
+                  <span style={{ fontSize: 14, fontWeight: 500, color: '#059669' }}>
+                    -{promoApplied.discountType === 'percentage' 
+                      ? `${promoApplied.discountValue}%` 
+                      : `${promoApplied.discountValue} MAD`}
+                  </span>
+                </div>
+              )}
+              
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: 13, color: '#6b7280' }}>Total</span>
                 <span style={{ fontSize: 24, fontWeight: 600, color: '#111827' }}>{totalPrice} MAD</span>
               </div>
+              
               <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 16 }}>
-                {prices[material]} MAD × {quantity} pièce{quantity > 1 ? 's' : ''}
+                {basePrices[material]} MAD × {quantity} pièce{quantity > 1 ? 's' : ''}
               </div>
+              
               <button
                 onClick={handleSubmit}
                 disabled={loading || !file}
