@@ -1,5 +1,4 @@
-import 'reflect-metadata';
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
 import { OrderStatus } from '../order.entity';
 
 export class UpdateOrderDto {
@@ -10,4 +9,8 @@ export class UpdateOrderDto {
   @IsOptional()
   @IsString()
   notes?: string;
+  
+  @IsOptional()
+  @IsUUID()
+  machineId?: string;  // Ajouter cette ligne
 }

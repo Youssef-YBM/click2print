@@ -27,6 +27,9 @@ export class Notification {
   @Column({ default: false })
   read: boolean;
 
+  @Column({ type: 'jsonb', nullable: true })
+  metadata: any;
+
   @ManyToOne(() => User, { eager: true })
   user: User;
 

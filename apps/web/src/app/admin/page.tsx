@@ -2,30 +2,31 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+
 const statusMap: Record<string, { label: string; bg: string; color: string }> = {
-  pending:   { label: 'En attente',    bg: '#fef3c7', color: '#92400e' },
-  review:    { label: 'Révision',      bg: '#fce7f3', color: '#9d174d' },
-  printing:  { label: 'En impression', bg: '#dbeafe', color: '#1e40af' },
-  done:      { label: 'Terminé',       bg: '#d1fae5', color: '#065f46' },
-  shipped:   { label: 'Expédié',       bg: '#ede9fe', color: '#4c1d95' },
-  cancelled: { label: 'Annulé',        bg: '#fee2e2', color: '#991b1b' },
+  pending: { label: 'En attente', bg: '#fef3c7', color: '#92400e' },
+  review: { label: 'Révision', bg: '#fce7f3', color: '#9d174d' },
+  printing: { label: 'En impression', bg: '#dbeafe', color: '#1e40af' },
+  done: { label: 'Terminé', bg: '#d1fae5', color: '#065f46' },
+  shipped: { label: 'Expédié', bg: '#ede9fe', color: '#4c1d95' },
+  cancelled: { label: 'Annulé', bg: '#fee2e2', color: '#991b1b' },
 };
 
 const statusOptions = [
-  { value: 'pending',   label: 'En attente' },
-  { value: 'review',    label: 'Révision' },
-  { value: 'printing',  label: 'En impression' },
-  { value: 'done',      label: 'Terminé' },
-  { value: 'shipped',   label: 'Expédié' },
+  { value: 'pending', label: 'En attente' },
+  { value: 'review', label: 'Révision' },
+  { value: 'printing', label: 'En impression' },
+  { value: 'done', label: 'Terminé' },
+  { value: 'shipped', label: 'Expédié' },
   { value: 'cancelled', label: 'Annulé' },
 ];
 
 const navItems = [
-  { id: 'dashboard', label: 'Dashboard',    icon: '▦' },
-  { id: 'orders',    label: 'Commandes',    icon: '📋' },
-  { id: 'users',     label: 'Utilisateurs', icon: '👥' },
-  { id: 'machines',  label: 'Machines',     icon: '🖨️' },
-  { id: 'assign',    label: 'Assignation',  icon: '🔧' },
+  { id: 'dashboard', label: 'Dashboard', icon: '▦' },
+  { id: 'orders', label: 'Commandes', icon: '📋' },
+  { id: 'users', label: 'Utilisateurs', icon: '👥' },
+  { id: 'machines', label: 'Machines', icon: '🖨️' },
+  { id: 'assign', label: 'Assignation', icon: '🔧' },
 ];
 
 export default function AdminPage() {
@@ -42,6 +43,8 @@ export default function AdminPage() {
   const [showAddMachine, setShowAddMachine] = useState(false);
   const [newMachine, setNewMachine] = useState({ name: '', type: 'FDM', materials: 'PLA' });
   const [assignModal, setAssignModal] = useState<any>(null);
+  const [machineProgress, setMachineProgress] = useState<Record<string, number>>({});
+  const [simulationIntervals, setSimulationIntervals] = useState<Record<string, any>>({});
 
   useEffect(() => {
     const stored = localStorage.getItem('user');
@@ -61,7 +64,10 @@ export default function AdminPage() {
   const fetchOrders = async (token: string) => {
     try {
       const res = await fetch('http://localhost:3001/orders', { headers: { Authorization: `Bearer ${token}` } });
-      setOrders(await res.json());
+      const data = await res.json();
+      // Filtrer les commandes invalides
+      const validOrders = data.filter(o => o && o.id);
+      setOrders(validOrders);
     } catch (e) { console.error(e); }
   };
 
@@ -109,18 +115,28 @@ export default function AdminPage() {
 
   const assignMachine = async (order: any, machineId: string) => {
     try {
-      await fetch(`http://localhost:3001/orders/${order.id}`, {
+      const res = await fetch(`http://localhost:3001/orders/${order.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ status: 'printing' }),
+        body: JSON.stringify({
+          status: 'printing',
+          machineId: machineId
+        }),
       });
-      setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: 'printing', machineId } : o));
-      setMachines(prev => prev.map(m => m.id === machineId ? { ...m, status: 'printing', currentJob: order.fileName, progress: 0 } : m));
+
+      if (res.ok) {
+        const updatedOrder = await res.json();
+        setOrders(prev => prev.map(o => o.id === order.id ? updatedOrder : o));
+
+        // Rafraîchir les machines
+        const token = getToken();
+        await fetchMachines(token);
+      }
     } catch (e) { console.error(e); }
     setAssignModal(null);
   };
 
-const addMachine = async () => {
+  const addMachine = async () => {
     if (!newMachine.name) return;
     try {
       const res = await fetch('http://localhost:3001/machines', {
@@ -146,11 +162,34 @@ const addMachine = async () => {
 
   const logout = () => { localStorage.clear(); router.push('/login'); };
 
-  const filteredOrders = orders.filter(o =>
+  const filteredOrders = orders.filter(o => o && o.id && (
     o.fileName?.toLowerCase().includes(search.toLowerCase()) ||
     o.user?.name?.toLowerCase().includes(search.toLowerCase()) ||
     o.id?.toLowerCase().includes(search.toLowerCase())
-  );
+  ));
+
+  // Fonction startSimulation
+  const startSimulation = (machineId: string) => {
+    // Générer un pourcentage une seule fois entre 1 et 70%
+    const randomProgress = Math.floor(Math.random() * 70) + 1;
+    setMachineProgress(prev => ({ ...prev, [machineId]: randomProgress }));
+  };
+
+  const resetMachineProgress = (machineId: string) => {
+    setMachineProgress(prev => {
+      const newState = { ...prev };
+      delete newState[machineId];
+      return newState;
+    });
+  };
+
+  // Nettoyage
+  useEffect(() => {
+    return () => {
+      Object.values(simulationIntervals).forEach(interval => clearInterval(interval));
+    };
+  }, [simulationIntervals]);
+
 
   const stats = [
     { label: 'Total commandes', value: orders.length, color: '#10b981' },
@@ -236,6 +275,7 @@ const addMachine = async () => {
         <div style={S.content}>
 
           {/* DASHBOARD */}
+
           {activeTab === 'dashboard' && (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 24 }}>
@@ -248,50 +288,152 @@ const addMachine = async () => {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
                 <div style={S.card}>
-                  <div style={{ padding: '14px 20px', borderBottom: '1px solid #f9fafb', fontWeight: 600, fontSize: 14, color: '#111827' }}>Commandes récentes</div>
+                  <div style={{ padding: '14px 20px', borderBottom: '1px solid #f9fafb', fontWeight: 600, fontSize: 14, color: '#111827' }}>
+                    Commandes récentes
+                  </div>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead><tr>{['ID', 'Client', 'Fichier', 'Prix', 'Statut', 'Action'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                    <thead>
+                      <tr>
+                        {['ID', 'Client', 'Fichier', 'Prix', 'Machine', 'Statut', 'Action'].map(h => <th key={h} style={S.th}>{h}</th>)}
+                      </tr>
+                    </thead>
                     <tbody>
-                      {orders.slice(0, 8).map(o => (
-                        <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedOrder(o)}>
-                          <td style={{ ...S.td, color: '#10b981', fontWeight: 500 }}>{o.id.slice(0, 8).toUpperCase()}</td>
-                          <td style={S.td}>{o.user?.name || 'N/A'}</td>
-                          <td style={{ ...S.td, color: '#6b7280' }}>{o.fileName}</td>
-                          <td style={{ ...S.td, fontWeight: 500 }}>{o.price} MAD</td>
-                          <td style={S.td}>
-                            <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20, background: statusMap[o.status]?.bg, color: statusMap[o.status]?.color }}>
-                              {statusMap[o.status]?.label}
-                            </span>
-                          </td>
-                          <td style={S.td} onClick={e => e.stopPropagation()}>
-                            <select value={o.status} onChange={e => updateStatus(o.id, e.target.value)} disabled={updating === o.id}
-                              style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '4px 8px', fontSize: 12, background: 'white', cursor: 'pointer', outline: 'none' }}>
-                              {statusOptions.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                            </select>
-                          </td>
-                        </tr>
-                      ))}
+                      {orders.filter(o => o && o.id).slice(0, 8).map(o => {
+                        // Logique de désactivation du select status
+                        const isCompleted = o.status === 'done' || o.status === 'shipped';
+                        const isCancelled = o.status === 'cancelled';
+                        const canChangeStatus = !isCompleted && !isCancelled;
+
+                        return (
+                          <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedOrder(o)}>
+                            <td style={{ ...S.td, color: '#10b981', fontWeight: 500 }}>
+                              {o.id?.slice(0, 8)?.toUpperCase() || 'N/A'}
+                            </td>
+                            <td style={S.td}>{o.user?.name || 'N/A'}</td>
+                            <td style={{ ...S.td, color: '#6b7280' }}>{o.fileName || 'N/A'}</td>
+                            <td style={{ ...S.td, fontWeight: 500 }}>{o.price ? `${o.price} MAD` : 'N/A'}</td>
+
+                            {/* Machine assignée */}
+                            <td style={S.td}>
+                              {o.machine ? (
+                                <span style={{
+                                  background: '#e8f5e9',
+                                  color: '#2e7d32',
+                                  padding: '3px 8px',
+                                  borderRadius: 6,
+                                  fontSize: 11,
+                                  fontWeight: 500
+                                }}>
+                                  {o.machine.name}
+                                </span>
+                              ) : (
+                                <span style={{ color: '#9ca3af', fontSize: 11 }}>
+                                  {o.status === 'pending' || o.status === 'review' ? 'À assigner' : '—'}
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Statut avec badge */}
+                            <td style={S.td}>
+                              <span style={{
+                                fontSize: 11,
+                                fontWeight: 500,
+                                padding: '3px 10px',
+                                borderRadius: 20,
+                                background: statusMap[o.status]?.bg,
+                                color: statusMap[o.status]?.color
+                              }}>
+                                {statusMap[o.status]?.label || o.status}
+                              </span>
+                            </td>
+
+                            {/* Action: select status */}
+                            <td style={S.td} onClick={e => e.stopPropagation()}>
+                              <select
+                                value={o.status}
+                                onChange={e => updateStatus(o.id, e.target.value)}
+                                disabled={updating === o.id || !canChangeStatus}
+                                style={{
+                                  border: '1px solid #e5e7eb',
+                                  borderRadius: 8,
+                                  padding: '4px 8px',
+                                  fontSize: 12,
+                                  background: !canChangeStatus ? '#f3f4f6' : 'white',
+                                  cursor: !canChangeStatus ? 'not-allowed' : 'pointer',
+                                  outline: 'none',
+                                  color: !canChangeStatus ? '#9ca3af' : '#374151'
+                                }}
+                                title={!canChangeStatus ? (isCompleted ? 'Commande terminée' : 'Commande annulée') : 'Changer le statut'}>
+                                {statusOptions.map(s => (
+                                  <option key={s.value} value={s.value} disabled={s.value === 'cancelled' && isCompleted}>
+                                    {s.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
+
+                {/* Section Machines (Dashboard) */}
                 <div style={S.card}>
-                  <div style={{ padding: '14px 20px', borderBottom: '1px solid #f9fafb', fontWeight: 600, fontSize: 14, color: '#111827' }}>Machines</div>
+                  <div style={{ padding: '14px 20px', borderBottom: '1px solid #f9fafb', fontWeight: 600, fontSize: 14, color: '#111827' }}>
+                    Machines
+                  </div>
                   <div style={{ padding: 16 }}>
                     {machines.length === 0 && <div style={{ color: '#9ca3af', fontSize: 13, textAlign: 'center', padding: 20 }}>Aucune machine</div>}
-                    {machines.map(m => (
-                      <div key={m.id} style={{ marginBottom: 14 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: m.status === 'printing' ? '#10b981' : m.status === 'error' ? '#ef4444' : '#d1d5db' }} />
-                            <span style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>{m.name}</span>
+                    {machines.map(m => {
+                      const isPrinting = m.status === 'printing';
+                      const progress = machineProgress[m.id] || m.progress || 0;
+
+                      // Démarrer la simulation si machine en impression et pas encore de progression
+                      if (isPrinting && !machineProgress[m.id]) {
+                        startSimulation(m.id);
+                      }
+
+                      // Réinitialiser quand la machine n'est plus en impression
+                      if (!isPrinting && machineProgress[m.id]) {
+                        resetMachineProgress(m.id);
+                      }
+
+                      return (
+                        <div key={m.id} style={{ marginBottom: 14 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <div style={{
+                                width: 8,
+                                height: 8,
+                                borderRadius: '50%',
+                                background: isPrinting ? '#10b981' : m.status === 'error' ? '#ef4444' : '#d1d5db'
+                              }} />
+                              <span style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>{m.name}</span>
+                              {m.currentJob && (
+                                <span style={{ fontSize: 10, background: '#f3f4f6', padding: '2px 6px', borderRadius: 4, color: '#6b7280' }}>
+                                  {m.currentJob.slice(0, 15)}...
+                                </span>
+                              )}
+                            </div>
+                            <span style={{ fontSize: 12, color: '#9ca3af' }}>
+                              {isPrinting ? `${Math.round(progress)}%` : m.status === 'idle' ? 'Disponible' : m.status}
+                            </span>
                           </div>
-                          <span style={{ fontSize: 12, color: '#9ca3af' }}>{m.status === 'printing' ? `${m.progress}%` : m.status}</span>
+                          {isPrinting && (
+                            <div style={{ background: '#f3f4f6', borderRadius: 4, height: 4 }}>
+                              <div style={{
+                                height: '100%',
+                                borderRadius: 4,
+                                width: `${progress}%`,
+                                background: '#10b981',
+                                transition: 'width 0.3s ease'
+                              }} />
+                            </div>
+                          )}
                         </div>
-                        <div style={{ background: '#f3f4f6', borderRadius: 4, height: 4 }}>
-                          <div style={{ height: '100%', borderRadius: 4, width: `${m.progress}%`, background: m.status === 'error' ? '#ef4444' : '#10b981' }} />
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -304,36 +446,145 @@ const addMachine = async () => {
               <div style={{ padding: '14px 20px', borderBottom: '1px solid #f9fafb', fontWeight: 600, fontSize: 14, color: '#111827' }}>
                 Toutes les commandes ({filteredOrders.length})
               </div>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead><tr>{['ID', 'Client', 'Fichier', 'Matériau', 'Qté', 'Prix', 'Statut', 'Date', 'Actions'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
-                <tbody>
-                  {filteredOrders.map(o => (
-                    <tr key={o.id}>
-                      <td style={{ ...S.td, color: '#10b981', fontWeight: 500, cursor: 'pointer' }} onClick={() => setSelectedOrder(o)}>{o.id.slice(0, 8).toUpperCase()}</td>
-                      <td style={S.td}>{o.user?.name || 'N/A'}</td>
-                      <td style={{ ...S.td, color: '#6b7280' }}>{o.fileName}</td>
-                      <td style={S.td}>{o.material}</td>
-                      <td style={S.td}>{o.quantity}</td>
-                      <td style={{ ...S.td, fontWeight: 500 }}>{o.price} MAD</td>
-                      <td style={S.td}>
-                        <select value={o.status} onChange={e => updateStatus(o.id, e.target.value)} disabled={updating === o.id}
-                          style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '4px 8px', fontSize: 12, background: 'white', cursor: 'pointer', outline: 'none' }}>
-                          {statusOptions.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                        </select>
-                      </td>
-                      <td style={{ ...S.td, color: '#9ca3af' }}>{new Date(o.createdAt).toLocaleDateString('fr-FR')}</td>
-                      <td style={S.td}>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button onClick={() => setSelectedOrder(o)} style={S.btnSm}>Détails</button>
-                          <button onClick={() => setAssignModal(o)} style={{ ...S.btnSm, background: '#eff6ff', color: '#1d4ed8' }}>Assigner</button>
-                        </div>
-                      </td>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      {['ID', 'Client', 'Fichier', 'Matériau', 'Qté', 'Prix', 'Machine', 'Statut', 'Date', 'Actions'].map(h => (
+                        <th key={h} style={S.th}>{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {filteredOrders.filter(o => o && o.id).map(o => {
+                      const isCompleted = o.status === 'done' || o.status === 'shipped';
+                      const isCancelled = o.status === 'cancelled';
+                      const isPrinting = o.status === 'printing';
+                      const canAssign = (o.status === 'pending' || o.status === 'review') && !o.machine;
+                      const canChangeStatus = !isCompleted && !isCancelled;
+
+                      let buttonText = 'Assigner';
+                      let buttonDisabled = true;
+                      let buttonTitle = '';
+
+                      if (isCancelled) {
+                        buttonText = 'Annulée';
+                        buttonTitle = 'Commande annulée';
+                        buttonDisabled = true;
+                      } else if (isCompleted) {
+                        buttonText = 'Terminée';
+                        buttonTitle = 'Commande terminée';
+                        buttonDisabled = true;
+                      } else if (isPrinting) {
+                        buttonText = 'En cours';
+                        buttonTitle = 'Commande en cours d\'impression';
+                        buttonDisabled = true;
+                      } else if (o.machine) {
+                        buttonText = 'Assignée';
+                        buttonTitle = `Machine: ${o.machine.name}`;
+                        buttonDisabled = true;
+                      } else if (canAssign) {
+                        buttonText = 'Assigner';
+                        buttonTitle = 'Assigner une machine';
+                        buttonDisabled = false;
+                      } else {
+                        buttonText = 'Indisponible';
+                        buttonTitle = 'Non assignable';
+                        buttonDisabled = true;
+                      }
+
+                      return (
+                        <tr key={o.id}>
+                          <td style={{ ...S.td, color: '#10b981', fontWeight: 500, cursor: 'pointer' }} onClick={() => setSelectedOrder(o)}>
+                            {o.id?.slice(0, 8)?.toUpperCase() || 'N/A'}
+                          </td>
+                          <td style={S.td}>{o.user?.name || 'N/A'}</td>
+                          <td style={{ ...S.td, color: '#6b7280' }}>{o.fileName || 'N/A'}</td>
+                          <td style={S.td}>{o.material || 'N/A'}</td>
+                          <td style={S.td}>{o.quantity || 0}</td>
+                          <td style={{ ...S.td, fontWeight: 500 }}>{o.price ? `${o.price} MAD` : 'N/A'}</td>
+
+                          <td style={S.td}>
+                            {o.machine ? (
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                background: '#e8f5e9',
+                                color: '#2e7d32',
+                                padding: '4px 8px',
+                                borderRadius: 6,
+                                fontSize: 11,
+                                fontWeight: 500
+                              }}>
+                                {o.machine.name}
+                              </span>
+                            ) : (
+                              <span style={{
+                                color: isCancelled || isCompleted ? '#9ca3af' : '#f59e0b',
+                                fontSize: 11,
+                                fontWeight: 500
+                              }}>
+                                {isCancelled ? '❌ Annulée' : isCompleted ? '✅ Terminée' : 'Non assignée'}
+                              </span>
+                            )}
+                          </td>
+
+                          <td style={S.td}>
+                            <select
+                              value={o.status}
+                              onChange={e => updateStatus(o.id, e.target.value)}
+                              disabled={updating === o.id || !canChangeStatus}
+                              style={{
+                                border: '1px solid #e5e7eb',
+                                borderRadius: 8,
+                                padding: '4px 8px',
+                                fontSize: 12,
+                                background: !canChangeStatus ? '#f3f4f6' : 'white',
+                                cursor: !canChangeStatus ? 'not-allowed' : 'pointer',
+                                outline: 'none',
+                                color: !canChangeStatus ? '#9ca3af' : '#374151'
+                              }}
+                              title={!canChangeStatus ? (isCompleted ? 'Commande terminée' : 'Commande annulée') : 'Changer le statut'}>
+                              {statusOptions.map(s => (
+                                <option key={s.value} value={s.value} disabled={s.value === 'cancelled' && (isCompleted || isCancelled)}>
+                                  {s.label}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+
+                          <td style={{ ...S.td, color: '#9ca3af' }}>{new Date(o.createdAt).toLocaleDateString('fr-FR')}</td>
+
+                          <td style={S.td}>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button onClick={() => setSelectedOrder(o)} style={S.btnSm}>
+                                Détails
+                              </button>
+                              <button
+                                onClick={() => setAssignModal(o)}
+                                disabled={buttonDisabled}
+                                style={{
+                                  ...S.btnSm,
+                                  background: buttonDisabled ? '#f3f4f6' : '#eff6ff',
+                                  color: buttonDisabled ? '#9ca3af' : '#1d4ed8',
+                                  cursor: buttonDisabled ? 'not-allowed' : 'pointer',
+                                  border: buttonDisabled ? '1px solid #e5e7eb' : '1px solid #bfdbfe',
+                                }}
+                                title={buttonTitle}>
+                                {buttonText}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
+
 
           {/* UTILISATEURS */}
           {activeTab === 'users' && (
@@ -377,39 +628,101 @@ const addMachine = async () => {
           )}
 
           {/* MACHINES */}
+
           {activeTab === 'machines' && (
             <>
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
                 <button onClick={() => setShowAddMachine(true)} style={S.btn}>+ Ajouter une machine</button>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
-                {machines.map(m => (
-                  <div key={m.id} style={{ background: 'white', borderRadius: 14, border: `1px solid ${m.status === 'error' ? '#fecaca' : '#f3f4f6'}`, padding: 20 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: m.status === 'printing' ? '#10b981' : m.status === 'error' ? '#ef4444' : '#d1d5db' }} />
-                          <span style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>{m.name}</span>
+                {machines.map(m => {
+                  const isPrinting = m.status === 'printing';
+                  const isCompleted = m.status === 'done' || m.status === 'shipped' || m.status === 'cancelled';
+                  const progress = machineProgress[m.id] || 0;
+
+                  // Démarrer la simulation si machine en impression et pas encore de progression
+                  if (isPrinting && !machineProgress[m.id]) {
+                    startSimulation(m.id);
+                  }
+
+                  // Réinitialiser quand la machine n'est plus en impression
+                  if (!isPrinting && machineProgress[m.id]) {
+                    resetMachineProgress(m.id);
+                  }
+
+                  return (
+                    <div key={m.id} style={{
+                      background: 'white',
+                      borderRadius: 14,
+                      border: `1px solid ${isPrinting ? '#dbeafe' : m.status === 'error' ? '#fecaca' : '#f3f4f6'}`,
+                      padding: 20
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                            <div style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: '50%',
+                              background: isPrinting ? '#10b981' : m.status === 'error' ? '#ef4444' : '#d1d5db'
+                            }} />
+                            <span style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>{m.name}</span>
+                          </div>
+                          <span style={{ fontSize: 11, background: '#f3f4f6', color: '#6b7280', padding: '2px 8px', borderRadius: 6 }}>
+                            {m.type}
+                          </span>
                         </div>
-                        <span style={{ fontSize: 11, background: '#f3f4f6', color: '#6b7280', padding: '2px 8px', borderRadius: 6 }}>{m.type}</span>
+                        <button onClick={() => deleteMachine(m.id)} style={S.btnDanger}>✕</button>
                       </div>
-                      <button onClick={() => deleteMachine(m.id)} style={S.btnDanger}>✕</button>
-                    </div>
-                    <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}><strong>Job :</strong> {m.currentJob || 'Disponible'}</div>
-                    <div style={{ background: '#f3f4f6', borderRadius: 6, height: 6, overflow: 'hidden', marginBottom: 6 }}>
-                      <div style={{ height: '100%', borderRadius: 6, width: `${m.progress}%`, background: m.status === 'error' ? '#ef4444' : '#10b981', transition: 'width 0.3s' }} />
-                    </div>
-                    {m.status === 'printing' && <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'right', marginBottom: 8 }}>{m.progress}%</div>}
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 4 }}>Matériaux</div>
-                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        {(m.materials || []).map((mat: string) => (
-                          <span key={mat} style={{ fontSize: 11, background: '#f0fdf4', color: '#059669', padding: '2px 8px', borderRadius: 6 }}>{mat}</span>
-                        ))}
+
+                      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
+                        <strong>Job :</strong> {m.currentJob || 'Disponible'}
+                      </div>
+
+                      {/* Barre de progression - constante */}
+                      {isPrinting && (
+                        <>
+                          <div style={{ background: '#f3f4f6', borderRadius: 6, height: 8, overflow: 'hidden', marginBottom: 6 }}>
+                            <div style={{
+                              height: '100%',
+                              borderRadius: 6,
+                              width: `${progress}%`,
+                              background: '#10b981',
+                              transition: 'width 0.3s ease'
+                            }} />
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                            <span style={{ fontSize: 11, color: '#6b7280' }}>Impression en cours...</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: '#10b981' }}>{Math.round(progress)}%</span>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Statut machine */}
+                      <div style={{
+                        fontSize: 12,
+                        color: isPrinting ? '#10b981' : m.status === 'idle' ? '#059669' : '#6b7280',
+                        fontWeight: 500,
+                        padding: '6px 0',
+                        borderTop: '1px solid #f3f4f6',
+                        marginTop: 8
+                      }}>
+                        {isPrinting ? '🟢 Occupée' : m.status === 'idle' ? '⚪ Disponible' : m.status === 'error' ? '🔴 Erreur' : '⚪ ' + m.status}
+                      </div>
+
+                      <div style={{ marginTop: 10 }}>
+                        <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 4 }}>Matériaux</div>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {(m.materials || []).map((mat: string) => (
+                            <span key={mat} style={{ fontSize: 11, background: '#f0fdf4', color: '#059669', padding: '2px 8px', borderRadius: 6 }}>
+                              {mat}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {machines.length === 0 && (
                   <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: 40, color: '#9ca3af', fontSize: 13 }}>
                     Aucune machine — ajoutez-en une !
@@ -428,9 +741,11 @@ const addMachine = async () => {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead><tr>{['ID', 'Client', 'Fichier', 'Matériau', 'Prix', 'Machine', 'Action'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
                 <tbody>
-                  {orders.filter(o => o.status === 'pending' || o.status === 'review').map(o => (
+                  {orders.filter(o => (o.status === 'pending' || o.status === 'review') && o && o.id).map(o => (
                     <tr key={o.id}>
-                      <td style={{ ...S.td, color: '#10b981', fontWeight: 500 }}>{o.id.slice(0, 8).toUpperCase()}</td>
+                      <td style={{ ...S.td, color: '#10b981', fontWeight: 500 }}>
+                        {o.id?.slice(0, 8)?.toUpperCase() || 'N/A'}
+                      </td>
                       <td style={S.td}>{o.user?.name || 'N/A'}</td>
                       <td style={{ ...S.td, color: '#6b7280' }}>{o.fileName}</td>
                       <td style={S.td}>{o.material}</td>
@@ -469,7 +784,9 @@ const addMachine = async () => {
           <div style={{ background: 'white', borderRadius: 16, padding: 28, width: 440, maxHeight: '80vh', overflowY: 'auto' }}
             onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Commande {selectedOrder.id.slice(0, 8).toUpperCase()}</h2>
+              <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>
+                Commande {selectedOrder.id?.slice(0, 8)?.toUpperCase() || 'N/A'}
+              </h2>
               <button onClick={() => setSelectedOrder(null)} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#9ca3af' }}>✕</button>
             </div>
             {[
